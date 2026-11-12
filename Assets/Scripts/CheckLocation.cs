@@ -15,7 +15,7 @@ public class CheckLocation : MonoBehaviour
     {
         if (GameManager.SceneCounter % 4 == 2)
         {
-            player.transform.position = new Vector3(-71.89f, 0.06f, 0.06f);
+            player.transform.position = new Vector3(-71.89f, 0.06f, 3.46f);
         }
         else if (GameManager.SceneCounter % 4 == 0)
         {
