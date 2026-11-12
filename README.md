@@ -1,1 +1,1 @@
-Design Document: https://docs.google.com/document/d/1yTVtxiGcaHhARrbBAYylfxy9agfTY5JjtD5n7aFlkTA/edit?usp=sharing
+This is a first person Unity prototype following one day in a character's life across three different scenes: Home, Town Road and Office. The player wakes up in their home, walks along the town road to the office and returns home to sleep. Each scene features multiple dynamic objects and interactive actions while also building up the horror with each scene. 
