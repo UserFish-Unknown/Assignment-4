@@ -4705,6 +4705,7 @@ MonoBehaviour:
   bedPoint: {fileID: 1350001399}
   standPoint: {fileID: 1434332621}
   lyingView: {fileID: 753408301}
+  faceTarget: {fileID: 0}
   shatterClip: {fileID: 8300000, guid: 20bf9222a15954a53b852e33ad7f4ab6, type: 3}
   soundPosition: {fileID: 1283832343}
   volume: 1
@@ -6767,7 +6768,7 @@ Transform:
   m_GameObject: {fileID: 1350001398}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.5, y: 0.6, z: 3.421}
+  m_LocalPosition: {x: -4.5, y: 0.699, z: 3.421}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

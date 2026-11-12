@@ -8,8 +8,9 @@ public class BedRoutine : MonoBehaviour
 {
     [Header("Markers (empty objects)")]
     public Transform bedPoint;
-    public Transform standPoint;     // on the open floor beside the bed
+    public Transform standPoint;     // open floor beside the bed: where you end up standing
     public Transform lyingView;      // where your EYES are when lying in bed
+    public Transform faceTarget;     // optional: you face this when standing (default: world origin)
 
     [Header("Sound")]
     public AudioClip shatterClip;
@@ -38,10 +39,16 @@ public class BedRoutine : MonoBehaviour
     bool rbWasKinematic;
     readonly List<MonoBehaviour> frozen = new List<MonoBehaviour>();
 
-    Quaternion standCamRot, lyingRot;
-    float eyeAbove;                 // standing eye height above the feet
-    Vector3 lyingEye;
-    float lyingYaw;
+    Renderer[] bodyRenderers;
+    bool[] rendererWas;
+
+    Transform camParent;
+    Vector3 camLocalPos, camLocalScale;
+    Quaternion camLocalRot;
+
+    Vector3 lyingEye, standFeet;
+    Quaternion lyingRot;
+    float lyingYaw, standYaw;
 
     float blackAlpha = 1f;
     string hintText = "";
@@ -70,15 +77,19 @@ public class BedRoutine : MonoBehaviour
         capsule = p.GetComponentInChildren<CapsuleCollider>();
         rb = p.GetComponentInChildren<Rigidbody>();
 
-        standCamRot = cam.transform.localRotation;
-        lyingRot = Quaternion.Euler(lyingCamEuler);
-        eyeAbove = cam.transform.position.y - FeetWorld().y;
+        bodyRenderers = p.GetComponentsInChildren<Renderer>(true);
+        rendererWas = new bool[bodyRenderers.Length];
+        for (int i = 0; i < bodyRenderers.Length; i++) rendererWas[i] = bodyRenderers[i].enabled;
 
         if (lyingView != null) { lyingEye = lyingView.position; lyingYaw = lyingView.eulerAngles.y; }
         else { lyingEye = bedPoint.position + Vector3.up * lyingEyeHeight; lyingYaw = bedPoint.eulerAngles.y; }
+        lyingRot = Quaternion.Euler(lyingCamEuler.x, lyingYaw, lyingCamEuler.z);
 
-        Debug.Log("BedRoutine OK: root=" + root.name + " eyeAboveFeet=" + eyeAbove.ToString("F2") +
-                  " controller=" + (controller != null) + " capsule=" + (capsule != null) + " rigidbody=" + (rb != null));
+        Vector3 look = (faceTarget != null ? faceTarget.position : Vector3.zero) - standPoint.position;
+        look.y = 0f;
+        standYaw = look.sqrMagnitude > 0.01f
+            ? Quaternion.LookRotation(look).eulerAngles.y
+            : standPoint.eulerAngles.y;
 
         if (pausePlayerScripts)
         {
@@ -91,16 +102,52 @@ public class BedRoutine : MonoBehaviour
             }
         }
 
+        Debug.Log("BedRoutine OK: root=" + root.name + " camera=" + cam.name +
+                  " controller=" + (controller != null) + " capsule=" + (capsule != null) +
+                  " pausedScripts=" + frozen.Count);
+
         Freeze();
-        cam.transform.localRotation = lyingRot;
-        SetEye(lyingEye, lyingYaw);
+
+        // Put the BODY once, standing on the real floor, facing the room
+        standFeet = GroundAt(standPoint.position) + Vector3.up * 0.02f;
+        PlaceFeet(standFeet, standYaw);
         Physics.SyncTransforms();
-        LogPose("Wake pose");
+
+        // Detach ONLY the camera and put it in bed
+        DetachCamera();
+        cam.transform.SetPositionAndRotation(lyingEye, lyingRot);
 
         StartCoroutine(WakeIntro());
     }
 
-    // ---------- measuring / moving ----------
+    // ---------- camera detach / reattach ----------
+    void DetachCamera()
+    {
+        camParent = cam.transform.parent;
+        camLocalPos = cam.transform.localPosition;
+        camLocalRot = cam.transform.localRotation;
+        camLocalScale = cam.transform.localScale;
+        cam.transform.SetParent(null, true);
+        HideBody(true);
+    }
+
+    void ReattachCamera()
+    {
+        cam.transform.SetParent(camParent, false);
+        cam.transform.localPosition = camLocalPos;
+        cam.transform.localRotation = camLocalRot;
+        cam.transform.localScale = camLocalScale;
+        HideBody(false);
+    }
+
+    void HideBody(bool hide)
+    {
+        if (bodyRenderers == null) return;
+        for (int i = 0; i < bodyRenderers.Length; i++)
+            if (bodyRenderers[i] != null) bodyRenderers[i].enabled = hide ? false : rendererWas[i];
+    }
+
+    // ---------- measuring / placing the body ----------
     Vector3 FeetWorld()
     {
         if (controller != null)
@@ -118,18 +165,14 @@ public class BedRoutine : MonoBehaviour
         return root.position;
     }
 
-    // Put the CAMERA at 'eye' facing 'yaw'; the body follows.
-    void SetEye(Vector3 eye, float yaw)
+    float FacingYaw()
     {
-        float d = Mathf.DeltaAngle(cam.transform.eulerAngles.y, yaw);
-        root.RotateAround(cam.transform.position, Vector3.up, d);
-        root.position += eye - cam.transform.position;
+        return cam.transform.IsChildOf(root) ? cam.transform.eulerAngles.y : root.eulerAngles.y;
     }
 
-    // Put the FEET at 'feet' facing 'yaw' (used for the safety check only)
     void PlaceFeet(Vector3 feet, float yaw)
     {
-        float d = Mathf.DeltaAngle(cam.transform.eulerAngles.y, yaw);
+        float d = Mathf.DeltaAngle(FacingYaw(), yaw);
         root.RotateAround(FeetWorld(), Vector3.up, d);
         root.position += feet - FeetWorld();
     }
@@ -145,13 +188,6 @@ public class BedRoutine : MonoBehaviour
             if (h.distance < best) { best = h.distance; point = h.point; }
         }
         return point;
-    }
-
-    void LogPose(string label)
-    {
-        Debug.Log(label + ": eye=" + cam.transform.position.ToString("F2") +
-                  " yaw=" + cam.transform.eulerAngles.y.ToString("F1") +
-                  " feet=" + FeetWorld().ToString("F2"));
     }
 
     // ---------- flow ----------
@@ -178,9 +214,24 @@ public class BedRoutine : MonoBehaviour
     IEnumerator WakeIntro()
     {
         state = State.Waking;
+        yield return Settle();                 // body settles onto the floor while hidden and paused
         yield return new WaitForSeconds(1f);
         yield return Fade(0f, 2.5f);
         state = State.LyingWaiting;
+    }
+
+    IEnumerator Settle()
+    {
+        if (controller == null) yield break;
+        Physics.SyncTransforms();
+        controller.enabled = true;
+        for (int i = 0; i < 30; i++)
+        {
+            controller.Move(Vector3.down * 0.05f);
+            if (controller.isGrounded) break;
+            yield return null;
+        }
+        standFeet = FeetWorld();
     }
 
     IEnumerator StandUp()
@@ -188,17 +239,17 @@ public class BedRoutine : MonoBehaviour
         state = State.Busy;
         hintText = "";
 
-        Vector3 target = GroundAt(standPoint.position) + Vector3.up * 0.02f;   // feet on the real floor
-        Vector3 eyeEnd = new Vector3(target.x, target.y + eyeAbove, target.z);
+        // The camera's own original pose = exactly where the player's eyes belong
+        Vector3 endPos = camParent != null ? camParent.TransformPoint(camLocalPos) : camLocalPos;
+        Quaternion endRot = camParent != null ? camParent.rotation * camLocalRot : camLocalRot;
 
-        yield return MoveEye(cam.transform.position, cam.transform.eulerAngles.y,
-                             eyeEnd, standPoint.eulerAngles.y,
-                             cam.transform.localRotation, standCamRot, 2.5f);
+        yield return MoveCam(cam.transform.position, cam.transform.rotation, endPos, endRot, 2.5f, 1.6f);
 
+        ReattachCamera();
         Unfreeze();
-        Debug.Log("Stand done. feet=" + FeetWorld().ToString("F2") + " target=" + target.ToString("F2"));
+        Debug.Log("Stand done. feet=" + FeetWorld().ToString("F2") + " eye=" + cam.transform.position.ToString("F2"));
         state = State.Standing;
-        StartCoroutine(AnchorGuard(target));
+        StartCoroutine(AnchorGuard(standFeet));
     }
 
     IEnumerator LieDown()
@@ -206,11 +257,9 @@ public class BedRoutine : MonoBehaviour
         state = State.Busy;
         hintText = "";
         Freeze();
+        DetachCamera();
 
-        yield return MoveEye(cam.transform.position, cam.transform.eulerAngles.y,
-                             lyingEye, lyingYaw,
-                             cam.transform.localRotation, lyingRot, 2f);
-        LogPose("Lie pose");
+        yield return MoveCam(cam.transform.position, cam.transform.rotation, lyingEye, lyingRot, 2f, 1f);
 
         yield return new WaitForSeconds(0.5f);
         yield return Fade(1f, 3f);
@@ -223,24 +272,20 @@ public class BedRoutine : MonoBehaviour
         onSleepEnd.Invoke();
     }
 
-    // Moves ONLY the eyes along one straight, smooth path
-    IEnumerator MoveEye(Vector3 e0, float y0, Vector3 e1, float y1,
-                        Quaternion r0, Quaternion r1, float dur)
+    // Moves ONLY the camera, along one smooth path
+    IEnumerator MoveCam(Vector3 p0, Quaternion r0, Vector3 p1, Quaternion r1, float dur, float rotLead)
     {
         for (float t = 0f; t < 1f; t += Time.deltaTime / dur)
         {
             float s = Mathf.SmoothStep(0f, 1f, t);
-            cam.transform.localRotation = Quaternion.Slerp(r0, r1, s);
-            SetEye(Vector3.Lerp(e0, e1, s), Mathf.LerpAngle(y0, y1, s));
-            Physics.SyncTransforms();
+            float sr = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t * rotLead));
+            cam.transform.SetPositionAndRotation(Vector3.Lerp(p0, p1, s), Quaternion.Slerp(r0, r1, sr));
             yield return null;
         }
-        cam.transform.localRotation = r1;
-        SetEye(e1, y1);
-        Physics.SyncTransforms();
+        cam.transform.SetPositionAndRotation(p1, r1);
     }
 
-    // If something yanks the player away right after standing, put them back
+    // If a shared script moves the player right after handoff, put them back
     IEnumerator AnchorGuard(Vector3 target)
     {
         float end = Time.time + 0.7f;
@@ -253,7 +298,7 @@ public class BedRoutine : MonoBehaviour
             {
                 Debug.LogWarning("Player was moved to " + f + " right after standing. Putting back.");
                 if (controller != null) controller.enabled = false;
-                PlaceFeet(target, standPoint.eulerAngles.y);
+                PlaceFeet(target, standYaw);
                 Physics.SyncTransforms();
                 if (controller != null) controller.enabled = true;
             }
@@ -271,11 +316,7 @@ public class BedRoutine : MonoBehaviour
     void Unfreeze()
     {
         Physics.SyncTransforms();
-        if (controller != null)
-        {
-            controller.enabled = true;
-            controller.Move(Vector3.down * 0.1f);   // settle on the floor before their scripts start
-        }
+        if (controller != null) controller.enabled = true;
         if (rb != null) rb.isKinematic = rbWasKinematic;
         foreach (var m in frozen) if (m != null) m.enabled = true;
     }
@@ -317,6 +358,7 @@ public class BedRoutine : MonoBehaviour
             Gizmos.DrawWireSphere(lyingView.position, 0.15f);
             Gizmos.DrawRay(lyingView.position, lyingView.forward * 0.5f);
         }
+        if (faceTarget != null) { Gizmos.color = Color.white; Gizmos.DrawWireSphere(faceTarget.position, 0.15f); }
     }
 
     void OnDrawGizmosSelected()
