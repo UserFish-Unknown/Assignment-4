@@ -7,6 +7,7 @@ public class DoorOpen : MonoBehaviour, IInteractable
         gameObject.transform.Rotate(Vector3.up * Time.deltaTime * 1000);
         //TODO: stop the interaction once it has happened once.
         GetComponent<Collider>().enabled = false;
+        //TODO: transition to next scene
     }
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
